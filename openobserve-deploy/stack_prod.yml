@@ -113,7 +113,10 @@
         restart_policy: unless-stopped
         network: "{{ network_name }}"
         volumes:
-          - "{{ postgres_volume }}:/var/lib/postgresql/data"
+          # Postgres 18+ images store data under a major-version subdirectory of
+          # /var/lib/postgresql; mounting only .../data is rejected. Mount the
+          # parent dir so the version-specific dir lands inside the volume.
+          - "{{ postgres_volume }}:/var/lib/postgresql"
         env:
           POSTGRES_USER: "{{ postgres_user }}"
           POSTGRES_PASSWORD: "{{ postgres_password }}"
