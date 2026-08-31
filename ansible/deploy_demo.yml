@@ -1,0 +1,65 @@
+---
+- name: Build and deploy demo-observability Java app on Tomcat
+  hosts: localhost
+  become: true
+  vars:
+    project_dir: "/opt/demo-observability"
+    image_name: "localhost/demo-observability:latest"
+    container_name: "demo-observability"
+    app_port: 8080
+    openobserve_host: "127.0.0.1"
+    openobserve_port: 5080
+    openobserve_org: "default"
+    openobserve_email: "admin@example.com"
+    openobserve_password: "Complexpass#123"
+    # Basic auth token in the format expected by OTEL_EXPORTER_OTLP_HEADERS
+    # (URL-encoded space after "Basic" -> %20)
+    otel_basic_auth: >-
+      Basic%20{{ (openobserve_email ~ ":" ~ openobserve_password) | b64encode }}
+
+  tasks:
+    - name: Ensure Podman is installed
+      ansible.builtin.dnf:
+        name: podman
+        state: present
+
+    - name: Build demo-observability image
+      containers.podman.podman_image:
+        name: "{{ image_name }}"
+        path: "{{ project_dir }}"
+        build:
+          file: Dockerfile
+        state: present
+
+    - name: Remove old container if present
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        state: absent
+
+    - name: Run demo-observability container
+      containers.podman.podman_container:
+        name: "{{ container_name }}"
+        image: "{{ image_name }}"
+        state: started
+        restart_policy: unless-stopped
+        publish: "{{ app_port }}:8080"
+        env:
+          OTEL_SERVICE_NAME: "demo-observability"
+          OTEL_EXPORTER_OTLP_ENDPOINT: "http://{{ openobserve_host }}:{{ openobserve_port }}/api/{{ openobserve_org }}"
+          OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+          OTEL_EXPORTER_OTLP_HEADERS: "Authorization={{ otel_basic_auth }}"
+
+    - name: Wait for Tomcat to start
+      ansible.builtin.wait_for:
+        port: "{{ app_port }}"
+        host: 127.0.0.1
+        state: started
+        timeout: 120
+        delay: 2
+
+  post_tasks:
+    - name: Display access information
+      ansible.builtin.debug:
+        msg: >
+          demo-observability running at http://localhost:{{ app_port }}/demo-observability/
+          Generating load: http://localhost:{{ app_port }}/demo-observability/load?count=50
