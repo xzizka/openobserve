@@ -1,5 +1,4 @@
 # Ansible
-inventory.ini
 group_vars/vault.yml
 collections/
 *.retry
