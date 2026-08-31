@@ -2,8 +2,10 @@
 FROM docker.io/library/maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 COPY pom.xml .
-# Resolve dependencies first for better layer caching
-RUN mvn -q -B dependency:go-offline
+# Resolve dependencies first for better layer caching.
+# Use the fully-qualified plugin coordinates: the short "dependency:" prefix
+# requires a metadata lookup that can fail with "No plugin found for prefix".
+RUN mvn -q -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:go-offline
 COPY src ./src
 RUN mvn -q -B package -DskipTests
 RUN ls -la target/
