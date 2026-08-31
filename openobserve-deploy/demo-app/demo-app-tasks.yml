@@ -40,11 +40,6 @@
     publish: "{{ demo_app_port }}:8080"
     env:
       OTEL_SERVICE_NAME: "demo-observability"
-      # Exporters must be set explicitly via env: the otel.properties file alone
-      # did not reliably activate the OTLP trace exporter (traces were dropped).
-      OTEL_TRACES_EXPORTER: "otlp"
-      OTEL_METRICS_EXPORTER: "otlp"
-      OTEL_LOGS_EXPORTER: "otlp"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://{{ openobserve_host_from_container }}:{{ openobserve_port }}/api/{{ openobserve_org }}"
       OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
       OTEL_EXPORTER_OTLP_HEADERS: "Authorization={{ otel_basic_auth }}"

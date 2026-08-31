@@ -11,7 +11,7 @@
 # NOTE: group_vars/vault.yml is git-ignored; never commit real secrets.
 
 # --- OpenObserve ---
-openobserve_image: "public.ecr.aws/zinclabs/openobserve:latest"
+openobserve_image: "public.ecr.aws/zinclabs/openobserve:v1.0.0-rc1"
 openobserve_container: "openobserve"
 openobserve_port: 5080
 openobserve_grpc_port: 5081
@@ -32,7 +32,7 @@ rustfs_s3_port: 9000
 rustfs_console_port: 9001
 
 # --- PostgreSQL (metadata store) ---
-postgres_image: "docker.io/library/postgres:16"
+postgres_image: "docker.io/library/postgres:18"
 postgres_container: "postgres"
 postgres_user: "openobserve"
 postgres_password: "ChangeThis-Postgres-Secret-2026!"
@@ -52,6 +52,7 @@ demo_project_dir: "/opt/demo-observability"
 demo_image: "localhost/demo-observability:latest"
 demo_container: "demo-observability"
 demo_app_port: 8080
-# From inside the container, the host (running OpenObserve) is the Podman
-# bridge gateway. Override in group_vars/vault.yml or host_vars for remote hosts.
-openobserve_host_from_container: "10.88.0.1"
+# Hostname the demo container uses to reach OpenObserve. The demo and
+# OpenObserve share the same Podman network, so the O2 container name resolves
+# directly (Podman DNS) and is robust to bridge/subnet changes.
+openobserve_host_from_container: "openobserve"
