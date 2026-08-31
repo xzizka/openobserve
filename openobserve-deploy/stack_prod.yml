@@ -198,10 +198,17 @@
           - "0.0.0.0:{{ openobserve_port }}:5080"
           - "0.0.0.0:{{ openobserve_grpc_port }}:5081"
         volumes:
-          - "{{ openobserve_data_dir_base }}:/data"
+          # :z relabels the bind mount for SELinux (permissive/disabled hosts ignore it,
+          # but on Fedora/RHEL with SELinux enforcing OpenObserve otherwise panics on
+          # "create cache dir success: Permission denied" and exits 101).
+          - "{{ openobserve_data_dir_base }}:/data:z"
         env:
           ZO_ROOT_USER_EMAIL: "{{ openobserve_root_email }}"
           ZO_ROOT_USER_PASSWORD: "{{ openobserve_root_password }}"
+          # Everything (WAL, disk cache, tmp, db) must live under the writable
+          # mounted volume; without ZO_DATA_DIR OpenObserve defaults to the
+          # relative "./data/openobserve/" resolved against cwd (/) and fails.
+          ZO_DATA_DIR: "/data"
           # Bind ingestion/gRPC on all interfaces so OTel SDKs/collectors on any
           # host can push logs/metrics/traces to this node.
           ZO_HTTP_PORT: "5080"

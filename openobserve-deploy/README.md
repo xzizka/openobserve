@@ -189,6 +189,12 @@ AWS_ACCESS_KEY_ID=openobserve AWS_SECRET_ACCESS_KEY='...' \
 - **Missing org**: OpenObserve auto-creates an org on first ingest into it; an
   empty org may not appear in the UI. Ingest at least one record (demo app load
   or a manual JSON ingest) first.
+- **OpenObserve exits 101, `create cache dir success: Permission denied`**:
+  caused by SELinux enforcing on the `:z`-less bind mount `/opt/openobserve`.
+  The playbook now mounts it as `:z` and sets `ZO_DATA_DIR=/data`, which fixes
+  both the SELinux write denial and OpenObserve's relative-default data path.
+  Re-run the playbook after this change; on a permissive SELinux host the `:z`
+  flag is simply ignored. (Diagnostic: `getenforce` shows `Enforcing`.)
 
 ## Reset / clean re-run
 
