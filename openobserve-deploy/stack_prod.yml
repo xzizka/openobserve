@@ -1,0 +1,266 @@
+---
+# Deploy a production-grade OpenObserve stack on a CLEAN Linux host:
+#   RustFS (S3-compatible object store) + PostgreSQL (metadata) + NATS (cluster)
+#   + OpenObserve in cluster mode + optional telemetry generator (demo app).
+#
+# All streams (logs/metrics/traces) report into organization "VUMSLegend"
+# (default stream "default").
+#
+# Requirements of the target machine (auto-satisfied):
+#   - Rocky/Alma/RHEL/Fedora family with dnf and sudo (become: true)
+#   - ansible-core installed on the controller (this project)
+#
+# Run:
+#   ansible-galaxy install -r requirements.yml       # containers.podman collection
+#   ansible-playbook -i inventory.ini stack_prod.yml
+#
+# To also deploy the demo telemetry generator at the end:
+#   ansible-playbook -i inventory.ini stack_prod.yml -e deploy_demo_app=true
+- name: Deploy OpenObserve production stack (RustFS + PostgreSQL + OpenObserve)
+  hosts: all
+  gather_facts: true
+  become: true
+  vars:
+    deploy_demo_app: false
+
+  pre_tasks:
+    - name: Install Podman
+      ansible.builtin.dnf:
+        name: podman
+        state: present
+
+    - name: Enable and start Podman API socket (used by containers.podman REST)
+      ansible.builtin.systemd:
+        name: podman.socket
+        enabled: true
+        state: started
+
+  tasks:
+    - name: Create Podman network for the stack
+      containers.podman.podman_network:
+        name: "{{ network_name }}"
+        state: present
+
+    # ---------------------------------------------------------------- RustFS
+    - name: Pull RustFS image
+      containers.podman.podman_image:
+        name: "{{ rustfs_image }}"
+        pull: true
+        force: true
+
+    - name: Ensure RustFS data volume exists
+      containers.podman.podman_volume:
+        name: "{{ rustfs_volume }}"
+        state: present
+
+    - name: Remove old RustFS container if present
+      containers.podman.podman_container:
+        name: "{{ rustfs_container }}"
+        state: absent
+
+    - name: Run RustFS object storage
+      containers.podman.podman_container:
+        name: "{{ rustfs_container }}"
+        image: "{{ rustfs_image }}"
+        state: started
+        restart_policy: unless-stopped
+        network: "{{ network_name }}"
+        publish:
+          - "0.0.0.0:{{ rustfs_s3_port }}:9000"
+          - "0.0.0.0:{{ rustfs_console_port }}:9001"
+        volumes:
+          - "{{ rustfs_volume }}:/data"
+        env:
+          RUSTFS_ACCESS_KEY: "{{ rustfs_access_key }}"
+          RUSTFS_SECRET_KEY: "{{ rustfs_secret_key }}"
+          RUSTFS_ADDRESS: ":9000"
+          RUSTFS_CONSOLE_ADDRESS: ":9001"
+          RUSTFS_CONSOLE_ENABLE: "true"
+          RUSTFS_OBS_LOGGER_LEVEL: "info"
+
+    - name: Wait for RustFS S3 API
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ rustfs_s3_port }}/health"
+        return_content: false
+        status_code: [200]
+      register: rustfs_health
+      until: rustfs_health.status == 200
+      retries: 30
+      delay: 2
+
+    # ------------------------------------------------------------ PostgreSQL
+    - name: Pull PostgreSQL image
+      containers.podman.podman_image:
+        name: "{{ postgres_image }}"
+        pull: true
+        force: true
+
+    - name: Ensure PostgreSQL data volume exists
+      containers.podman.podman_volume:
+        name: "{{ postgres_volume }}"
+        state: present
+
+    - name: Remove old PostgreSQL container if present
+      containers.podman.podman_container:
+        name: "{{ postgres_container }}"
+        state: absent
+
+    - name: Run PostgreSQL (metadata store)
+      containers.podman.podman_container:
+        name: "{{ postgres_container }}"
+        image: "{{ postgres_image }}"
+        state: started
+        restart_policy: unless-stopped
+        network: "{{ network_name }}"
+        volumes:
+          - "{{ postgres_volume }}:/var/lib/postgresql/data"
+        env:
+          POSTGRES_USER: "{{ postgres_user }}"
+          POSTGRES_PASSWORD: "{{ postgres_password }}"
+          POSTGRES_DB: "{{ postgres_db }}"
+
+    - name: Wait for PostgreSQL to accept connections
+      ansible.builtin.command: >-
+        podman exec {{ postgres_container }} pg_isready -U {{ postgres_user }} -d {{ postgres_db }}
+      register: pg_ready
+      until: pg_ready.rc == 0
+      retries: 30
+      delay: 2
+
+    # ------------------------------------------------------------------- NATS
+    - name: Pull NATS image
+      containers.podman.podman_image:
+        name: "{{ nats_image }}"
+        pull: true
+        force: true
+
+    - name: Ensure NATS data volume exists
+      containers.podman.podman_volume:
+        name: "{{ nats_volume }}"
+        state: present
+
+    - name: Remove old NATS container if present
+      containers.podman.podman_container:
+        name: "{{ nats_container }}"
+        state: absent
+
+    - name: Run NATS with JetStream (cluster coordinator)
+      containers.podman.podman_container:
+        name: "{{ nats_container }}"
+        image: "{{ nats_image }}"
+        state: started
+        restart_policy: unless-stopped
+        network: "{{ network_name }}"
+        volumes:
+          - "{{ nats_volume }}:/data"
+        command: ["-js", "-sd", "/data"]
+
+    - name: Wait for NATS to start
+      ansible.builtin.command: "podman exec {{ nats_container }} nats-server --version"
+      register: nats_check
+      changed_when: false
+      until: nats_check.rc == 0
+      retries: 10
+      delay: 2
+      ignore_errors: true
+
+    # ------------------------------------------------------------ OpenObserve
+    - name: Pull OpenObserve image
+      containers.podman.podman_image:
+        name: "{{ openobserve_image }}"
+        pull: true
+        force: true
+
+    - name: Create OpenObserve local data directory
+      ansible.builtin.file:
+        path: "{{ openobserve_data_dir_base }}"
+        state: directory
+
+    - name: Remove old OpenObserve container if present
+      containers.podman.podman_container:
+        name: "{{ openobserve_container }}"
+        state: stopped
+      ignore_errors: true
+
+    - name: Remove old OpenObserve container (final)
+      containers.podman.podman_container:
+        name: "{{ openobserve_container }}"
+        state: absent
+
+    - name: Run OpenObserve (cluster/All-node, S3 via RustFS, Postgres metadata)
+      containers.podman.podman_container:
+        name: "{{ openobserve_container }}"
+        image: "{{ openobserve_image }}"
+        state: started
+        restart_policy: unless-stopped
+        network: "{{ network_name }}"
+        publish:
+          - "0.0.0.0:{{ openobserve_port }}:5080"
+          - "0.0.0.0:{{ openobserve_grpc_port }}:5081"
+        volumes:
+          - "{{ openobserve_data_dir_base }}:/data"
+        env:
+          ZO_ROOT_USER_EMAIL: "{{ openobserve_root_email }}"
+          ZO_ROOT_USER_PASSWORD: "{{ openobserve_root_password }}"
+          # Bind ingestion/gRPC on all interfaces so OTel SDKs/collectors on any
+          # host can push logs/metrics/traces to this node.
+          ZO_HTTP_PORT: "5080"
+          ZO_GRPC_PORT: "5081"
+          # Cluster mode + S3 storage + Postgres metadata
+          ZO_LOCAL_MODE: "false"
+          ZO_META_STORE: "postgres"
+          ZO_META_POSTGRES_DSN: "postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ postgres_container }}:5432/{{ postgres_db }}"
+          # Cluster coordinator via NATS
+          ZO_NATS_ADDR: "{{ nats_container }}:4222"
+          ZO_NATS_REPLICAS: "1"
+          # Object storage (RustFS, S3-compatible)
+          ZO_S3_SERVER_URL: "http://{{ rustfs_container }}:9000"
+          ZO_S3_REGION_NAME: "us-east-1"
+          ZO_S3_BUCKET_NAME: "{{ openobserve_bucket }}"
+          ZO_S3_ACCESS_KEY: "{{ rustfs_access_key }}"
+          ZO_S3_SECRET_KEY: "{{ rustfs_secret_key }}"
+          ZO_S3_PROVIDER: "s3"
+          ZO_S3_FEATURE_FORCE_HOSTED_STYLE: "false"
+          # Reasonable logging (verbose storage/ingester trace for diagnostics)
+          RUST_LOG: "info,openobserve_jobs::job::files::parquet=trace,common::infra=debug,ingester=debug,infra::storage=debug"
+
+    - name: Wait for OpenObserve HTTP port
+      ansible.builtin.wait_for:
+        port: "{{ openobserve_port }}"
+        host: 127.0.0.1
+        state: started
+        timeout: 90
+        delay: 2
+
+    # ----------------------------------- Ensure the S3 bucket exists in RustFS
+    - name: Ensure the OpenObserve S3 bucket "{{ openobserve_bucket }}" exists
+      ansible.builtin.command: >-
+        podman run --rm --network {{ network_name }}
+        -e AWS_ACCESS_KEY_ID={{ rustfs_access_key }}
+        -e AWS_SECRET_ACCESS_KEY={{ rustfs_secret_key }}
+        -e AWS_DEFAULT_REGION=us-east-1
+        docker.io/amazon/aws-cli:latest
+        s3api create-bucket --bucket {{ openobserve_bucket }}
+        --endpoint-url http://{{ rustfs_container }}:9000
+      register: bucket_create
+      changed_when: bucket_create.rc == 0
+      failed_when: >-
+        bucket_create.rc != 0 and 'AlreadyOwnedByYou' not in bucket_create.stderr
+        and 'already exists' not in bucket_create.stderr
+      ignore_errors: true
+
+  post_tasks:
+    - name: Deploy demo telemetry generator into {{ openobserve_org }}
+      ansible.builtin.include_tasks:
+        file: demo-app/demo-app-tasks.yml
+      when: deploy_demo_app | default(false)
+
+    - name: Display stack information
+      ansible.builtin.debug:
+        msg: >
+          OpenObserve stack deployed.
+          - UI: http://{{ ansible_default_ipv4.address | default('localhost') }}:{{ openobserve_port }}
+          - Login: {{ openobserve_root_email }} / {{ openobserve_root_password }}
+          - Organization: {{ openobserve_org }}
+          - S3 (RustFS): http://{{ ansible_default_ipv4.address | default('localhost') }}:{{ rustfs_s3_port }}
+          - Metadata DB (PostgreSQL): {{ postgres_db }} (user {{ postgres_user }})

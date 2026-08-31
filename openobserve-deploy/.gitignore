@@ -1,0 +1,9 @@
+# Ansible
+inventory.ini
+group_vars/vault.yml
+collections/
+*.retry
+vault_pass.txt
+
+# Local deploy artifacts produced on the target machine
+/opt/

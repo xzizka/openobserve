@@ -1,0 +1,60 @@
+---
+# Deploy the demo-observability Java app, exporting all three OTel signals
+# (logs, metrics, traces) into organization {{ openobserve_org }} on stream
+# "default".
+#
+# Included from stack_prod.yml post_tasks when deploy_demo_app=true.
+
+- name: Copy demo-observability sources to target
+  ansible.builtin.copy:
+    src: "demo-app/demo-observability/"
+    dest: "{{ demo_project_dir }}"
+    owner: root
+    group: root
+    mode: preserve
+
+- name: Build demo-observability container image
+  containers.podman.podman_image:
+    name: "{{ demo_image }}"
+    path: "{{ demo_project_dir }}"
+    build:
+      file: Dockerfile
+    state: present
+
+- name: Remove old demo-observability container if present
+  containers.podman.podman_container:
+    name: "{{ demo_container }}"
+    state: absent
+
+- name: Basic auth header for the OTLP exporter (org {{ openobserve_org }})
+  ansible.builtin.set_fact:
+    otel_basic_auth: >-
+      Basic%20{{ (openobserve_root_email ~ ":" ~ openobserve_root_password) | b64encode }}
+
+- name: Run demo-observability container
+  containers.podman.podman_container:
+    name: "{{ demo_container }}"
+    image: "{{ demo_image }}"
+    state: started
+    restart_policy: unless-stopped
+    publish: "{{ demo_app_port }}:8080"
+    env:
+      OTEL_SERVICE_NAME: "demo-observability"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://{{ openobserve_host_from_container }}:{{ openobserve_port }}/api/{{ openobserve_org }}"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+      OTEL_EXPORTER_OTLP_HEADERS: "Authorization={{ otel_basic_auth }}"
+
+- name: Wait for demo app to start
+  ansible.builtin.wait_for:
+    port: "{{ demo_app_port }}"
+    host: 127.0.0.1
+    state: started
+    timeout: 120
+    delay: 2
+
+- name: Demo telemetry generator running
+  ansible.builtin.debug:
+    msg: >
+      demo-observability at http://{{ ansible_default_ipv4.address | default('localhost') }}:{{ demo_app_port }}/demo-observability/
+      Generate traffic: http://{{ ansible_default_ipv4.address | default('localhost') }}:{{ demo_app_port }}/demo-observability/load?count=200
+      Exporting all signals -> org {{ openobserve_org }} (stream default)

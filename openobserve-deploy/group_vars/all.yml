@@ -1,0 +1,57 @@
+---
+# Global variables for the OpenObserve stack deployment.
+#
+# All credentials are plain Ansible variables with working defaults for a
+# development/local trial. For any real deployment:
+#   1. Copy ./vault-example/vault.yml -> ./group_vars/vault.yml
+#   2. ansible-vault encrypt group_vars/vault.yml
+#   3. Uncomment the secret lines below (they override the defaults) and
+#      remove the placeholder inline values from stack_prod.yml / demo-app.yml.
+#
+# NOTE: group_vars/vault.yml is git-ignored; never commit real secrets.
+
+# --- OpenObserve ---
+openobserve_image: "public.ecr.aws/zinclabs/openobserve:latest"
+openobserve_container: "openobserve"
+openobserve_port: 5080
+openobserve_grpc_port: 5081
+openobserve_root_email: "admin@example.com"
+openobserve_root_password: "Complexpass#123"
+openobserve_org: "VUMSLegend"
+openobserve_bucket: "openobserve"
+openobserve_data_dir_base: "/opt/openobserve"
+openobserve_local_volume: "openobserve-local"
+
+# --- RustFS (S3-compatible object storage) ---
+rustfs_image: "docker.io/rustfs/rustfs:latest"
+rustfs_container: "rustfs"
+rustfs_access_key: "openobserve"
+rustfs_secret_key: "ChangeThis-RustFS-Secret-2026!"
+rustfs_volume: "rustfs-data"
+rustfs_s3_port: 9000
+rustfs_console_port: 9001
+
+# --- PostgreSQL (metadata store) ---
+postgres_image: "docker.io/library/postgres:16"
+postgres_container: "postgres"
+postgres_user: "openobserve"
+postgres_password: "ChangeThis-Postgres-Secret-2026!"
+postgres_db: "openobserve"
+postgres_volume: "postgres-data"
+
+# --- NATS (cluster coordinator) ---
+nats_image: "docker.io/library/nats:latest"
+nats_container: "nats"
+nats_volume: "nats-data"
+
+# --- Podman network ---
+network_name: "o2stack"
+
+# --- Demo application (telemetry generator) ---
+demo_project_dir: "/opt/demo-observability"
+demo_image: "localhost/demo-observability:latest"
+demo_container: "demo-observability"
+demo_app_port: 8080
+# From inside the container, the host (running OpenObserve) is the Podman
+# bridge gateway. Override in group_vars/vault.yml or host_vars for remote hosts.
+openobserve_host_from_container: "10.88.0.1"

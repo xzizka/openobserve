@@ -1,0 +1,19 @@
+---
+# Example encrypted secrets file.
+#
+# Usage:
+#   cp vault-example/vault.yml group_vars/vault.yml
+#   ansible-vault encrypt group_vars/vault.yml     # set your vault password
+#   ansible-playbook -i inventory.ini stack_prod.yml --ask-vault-pass
+#
+# These variables TAKE PRECEDENCE over the defaults in group_vars/all.yml.
+# Uncomment and set real values for non-trial deployments.
+
+#openobserve_root_email: "admin@example.com"
+#openobserve_root_password: "CHANGE-ME-STRONG-PASSWORD"
+#rustfs_access_key: "openobserve"
+#rustfs_secret_key: "CHANGE-ME-RUSTFS-SECRET"
+#postgres_user: "openobserve"
+#postgres_password: "CHANGE-ME-POSTGRES-PASSWORD"
+#postgres_db: "openobserve"
+#openobserve_bucket: "openobserve"
