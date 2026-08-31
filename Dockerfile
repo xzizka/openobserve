@@ -1,5 +1,5 @@
 # ---- Build stage: compile the WAR ----
-FROM maven:3.9-eclipse-temurin-17 AS build
+FROM docker.io/library/maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 COPY pom.xml .
 # Resolve dependencies first for better layer caching
@@ -9,7 +9,7 @@ RUN mvn -q -B package -DskipTests
 RUN ls -la target/
 
 # ---- Runtime stage: Tomcat + OpenTelemetry javaagent ----
-FROM tomcat:10.1-jdk17
+FROM docker.io/library/tomcat:10.1-jdk17
 
 # OpenTelemetry Java agent version
 ARG OTEL_AGENT_VERSION=2.31.1

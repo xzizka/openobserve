@@ -16,9 +16,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.security.SecureRandom;
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -39,12 +36,12 @@ public class DemoServlet extends HttpServlet {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final Tracer tracer =
-            GlobalOpenTelemetry.getTracer("demo-observability", "1.0.0");
+            GlobalOpenTelemetry.get().getTracer("demo-observability");
     private final LongCounter requestCounter;
 
     public DemoServlet() {
         Meter meter =
-                GlobalOpenTelemetry.getMeter("demo-observability", "1.0.0");
+                GlobalOpenTelemetry.get().getMeter("demo-observability");
         this.requestCounter =
                 meter.counterBuilder("demo.requests.total")
                         .setDescription("Total number of demo requests processed")
@@ -59,13 +56,15 @@ public class DemoServlet extends HttpServlet {
         // Increment a custom metric counter.
         requestCounter.add(1);
 
+        // Work duration, shared between span processing and rendering.
+        int workMs = 20 + RANDOM.nextInt(180);
+
         // Create an explicit child span inside the auto-instrumented HTTP span.
         Span processingSpan =
                 tracer.spanBuilder("demo/process").setAttribute("demo.work", true).startSpan();
         try (Scope unused = processingSpan.makeCurrent()) {
 
             // Simulate some internal work with variable latency.
-            int workMs = 20 + RANDOM.nextInt(180);
             try {
                 Thread.sleep(workMs);
             } catch (InterruptedException e) {

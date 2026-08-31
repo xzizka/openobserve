@@ -7,7 +7,7 @@
     image_name: "localhost/demo-observability:latest"
     container_name: "demo-observability"
     app_port: 8080
-    openobserve_host: "127.0.0.1"
+    openobserve_host: "10.88.0.1"
     openobserve_port: 5080
     openobserve_org: "default"
     openobserve_email: "admin@example.com"
