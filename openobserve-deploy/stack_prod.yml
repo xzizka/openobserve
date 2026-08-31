@@ -260,7 +260,7 @@
     - name: Deploy demo telemetry generator into {{ openobserve_org }}
       ansible.builtin.include_tasks:
         file: demo-app/demo-app-tasks.yml
-      when: deploy_demo_app | default(false)
+      when: deploy_demo_app | default(false) | bool
 
     - name: Display stack information
       ansible.builtin.debug:
