@@ -49,13 +49,38 @@ ansible-playbook -i inventory.ini deploy_demo.yml
 ```
 
 The playbook builds the container image with Podman and runs it, wiring the
-OpenTelemetry exporter to OpenObserve on `:5080` with Basic auth.
+OpenTelemetry exporter to OpenObserve.
+
+> **Endpoint note:** the agent inside the container cannot reach OpenObserve via
+> `127.0.0.1` (that resolves to its own container). The playbook points it at the
+> Podman bridge gateway (`10.88.0.1`), which is the host as seen from the
+> container. OpenObserve runs on `:5080` with Basic auth.
 
 ## Verify
 
+Ingested data lands in the `default` stream of the `default` organization and
+is queryable via the OpenObserve API/UI:
+
 - App UI: `http://<host>:8080/demo-observability/`
 - Generate load: `http://<host>:8080/demo-observability/load?count=50`
-- OpenObserve UI (`http://<host>:5080`), then check:
-  - **Traces** — filter by `demo-observability`
-  - **Logs** — search `demo-observability`
-  - **Metrics** / **Streams** — `demo.requests.total` and JVM metrics
+
+Search examples (Basic auth `admin@example.com:Complexpass#123`):
+
+```bash
+# Logs
+curl -u 'admin@example.com:Complexpass#123' -X POST \
+  'http://<host>:5080/api/default/_search?type=logs' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":{"sql":"select count(*) as c from \"default\"","start_time":<start_us>,"end_time":<end_us>}}'
+
+# Traces
+curl -u 'admin@example.com:Complexpass#123' -X POST \
+  'http://<host>:5080/api/default/_search?type=traces' \
+  -H 'Content-Type: application/json' \
+  -d '{"query":{"sql":"select count(*) as c from \"default\"","start_time":<start_us>,"end_time":<end_us>}}'
+```
+
+In the OpenObserve UI (`http://<host>:5080`):
+- **Traces** — filter by service `demo-observability`
+- **Logs** — search the `default` stream
+- **Metrics** / **Streams** — `demo_requests_total` and JVM metrics
