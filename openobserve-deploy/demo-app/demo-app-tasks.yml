@@ -37,6 +37,7 @@
     image: "{{ demo_image }}"
     state: started
     restart_policy: unless-stopped
+    network: "{{ network_name }}"
     publish: "{{ demo_app_port }}:8080"
     env:
       OTEL_SERVICE_NAME: "demo-observability"
