@@ -3,7 +3,7 @@
 Deploy a production-grade OpenObserve stack on a **clean Linux host**:
 
 - **RustFS** — S3-compatible object storage (stream/Parquet data)
-- **PostgreSQL 16** — metadata / file-list store
+- **PostgreSQL 18** — metadata / file-list store
 - **NATS** (JetStream) — cluster coordinator for OpenObserve cluster mode
 - **OpenObserve** — cluster mode (`ZO_LOCAL_MODE=false`, role `All`)
 - **demo-observability** *(optional)* — Java app that exports **logs, metrics and
@@ -86,9 +86,21 @@ Default inventory deploys to `localhost`. For a **remote clean host**, edit
 o2-host ansible_host=<IP> ansible_user=<user> ansible_become=true
 ```
 
-and override `openobserve_host_from_container` if the demo app should reach a
-different OpenObserve endpoint (Podman's bridge gateway `10.88.0.1` is correct
-when OpenObserve runs on the same host Podman builds the demo image on).
+> The remote user needs `sudo` and must be able to run `podman` with `sudo`
+> (rootful). The playbook creates the `o2stack` network and runs all containers
+> on it, so they resolve each other by name.
+
+`openobserve_host_from_container` is what the demo app uses for its OTLP
+endpoint **from inside the container**. Because all containers (OpenObserve +
+demo) share the `o2stack` network, set it to the OpenObserve container name:
+
+```yaml
+openobserve_host_from_container: "openobserve"
+```
+
+Do **not** use another host's bridge gateway (e.g. `10.88.0.1`); the demo is on
+`o2stack`, not on that bridge, so any other value makes the OTLP exporter time
+out and no telemetry reaches OpenObserve.
 
 ## 3. Deploy the stack
 
@@ -183,9 +195,36 @@ AWS_ACCESS_KEY_ID=openobserve AWS_SECRET_ACCESS_KEY='...' \
   `openobserve_bucket`.
 - **NATS crash `replicas > 1 not supported in non-clustered mode`**:
   keep `ZO_NATS_REPLICAS: "1"` (single-node install).
-- **Demo app cannot reach OpenObserve**: ensure `openobserve_host_from_container`
-  points at the host/OpenObserve from the container's point of view
-  (Podman bridge gateway `10.88.0.1` for local).
+- **Demo app cannot reach OpenObserve / exporter timeouts
+  (`java.io.InterruptedIOException`)**: the demo and OpenObserve must be on the
+  same Podman network. `openobserve_host_from_container` must be `openobserve`
+  (the O2 container name) so the demo resolves it on `o2stack`. A mismatched
+  value (e.g. a foreign bridge gateway like `10.88.0.1`) keeps the exporter
+  timing out and no data reaches OpenObserve. Also confirm the demo container is
+  attached to `o2stack` (`sudo podman inspect demo-observability ... networks`).
+- **Postgres container crash-loops / `pg_isready` fails with
+  `crun: read pipe failed`**: the official Postgres **18+** image changed its
+  data layout — data lives in a major-version subdirectory of
+  `/var/lib/postgresql`. The playbook therefore mounts the volume at
+  `/var/lib/postgresql` (not `/var/lib/postgresql/data`). If an old volume was
+  initialised with the old layout, remove it first:
+  `sudo podman volume rm postgres-data`.
+- **OpenObserve restarts at startup: `S3 upload test failed`, bucket not found**:
+  OpenObserve performs an S3 upload test on startup and exits in a restart loop
+  (`backend job init failed`, `restarts=N` climbing) if the bucket does not yet
+  exist. The playbook now creates the bucket (`openobserve_bucket`) as soon as
+  RustFS is healthy — *before* the OpenObserve container starts — so a fresh
+  deployment never hits this race. If you already have a stack deployed with an
+  older playbook that left `openobserve` crash-looping, fix it manually by
+  creating the bucket, then restarting OpenObserve:
+  ```bash
+  sudo podman run --rm --network o2stack \
+    -e AWS_ACCESS_KEY_ID=openobserve -e AWS_SECRET_ACCESS_KEY='<secret>' \
+    docker.io/amazon/aws-cli:latest s3api create-bucket --bucket openobserve \
+    --endpoint-url http://rustfs:9000
+  sudo podman restart openobserve
+  ```
+  Verify with `sudo podman logs openobserve | grep "backend job init success"`.
 - **Missing org**: OpenObserve auto-creates an org on first ingest into it; an
   empty org may not appear in the UI. Ingest at least one record (demo app load
   or a manual JSON ingest) first.
@@ -201,9 +240,12 @@ AWS_ACCESS_KEY_ID=openobserve AWS_SECRET_ACCESS_KEY='...' \
 To fully wipe the local stack (containers, volumes, data dir):
 
 ```bash
-sudo podman rm -f rustfs postgres nats openobserve demo-observability bucket-init 2>/dev/null
+sudo podman rm -f rustfs postgres nats openobserve demo-observability 2>/dev/null
 sudo podman volume rm -f rustfs-data postgres-data nats-data openobserve-local 2>/dev/null
 sudo rm -rf /opt/openobserve /opt/demo-observability
 sudo podman network rm o2stack 2>/dev/null
 ansible-playbook -i inventory.ini stack_prod.yml -e deploy_demo_app=true
 ```
+
+> If you previously ran an older version of the playbook, drop the stale
+> `postgres-data` volume as well (Postgres 18 layout) before re-running.

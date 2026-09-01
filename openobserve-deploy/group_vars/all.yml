@@ -23,7 +23,7 @@ openobserve_data_dir_base: "/opt/openobserve"
 openobserve_local_volume: "openobserve-local"
 
 # --- RustFS (S3-compatible object storage) ---
-rustfs_image: "docker.io/rustfs/rustfs:latest"
+rustfs_image: "docker.io/rustfs/rustfs:1.0.0-rc.4"
 rustfs_container: "rustfs"
 rustfs_access_key: "openobserve"
 rustfs_secret_key: "ChangeThis-RustFS-Secret-2026!"
