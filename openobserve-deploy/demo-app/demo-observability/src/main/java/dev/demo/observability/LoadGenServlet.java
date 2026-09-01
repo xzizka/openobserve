@@ -35,7 +35,7 @@ public class LoadGenServlet extends HttpServlet {
         } catch (Exception e) {
             count = 25;
         }
-        count = Math.max(1, Math.min(count, 200));
+        count = Math.max(1, Math.min(count, 1_000_000));
 
         HttpClient client = HttpClient.newBuilder().build();
         String target =
