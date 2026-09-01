@@ -88,6 +88,27 @@
       retries: 30
       delay: 2
 
+    # ----------------------------------- Ensure the S3 bucket exists in RustFS
+    # Must run BEFORE OpenObserve starts: OpenObserve performs an S3 upload
+    # test on startup and exits in a restart loop if the bucket does not yet
+    # exist ("infra init failed: ... NoSuchBucket"). Create the bucket as soon
+    # as RustFS is healthy, long before the OpenObserve container is started.
+    - name: Ensure the OpenObserve S3 bucket "{{ openobserve_bucket }}" exists
+      ansible.builtin.command: >-
+        podman run --rm --network {{ network_name }}
+        -e AWS_ACCESS_KEY_ID={{ rustfs_access_key }}
+        -e AWS_SECRET_ACCESS_KEY={{ rustfs_secret_key }}
+        -e AWS_DEFAULT_REGION=us-east-1
+        docker.io/amazon/aws-cli:latest
+        s3api create-bucket --bucket {{ openobserve_bucket }}
+        --endpoint-url http://{{ rustfs_container }}:9000
+      register: bucket_create
+      changed_when: bucket_create.rc == 0
+      failed_when: >-
+        bucket_create.rc != 0 and 'AlreadyOwnedByYou' not in bucket_create.stderr
+        and 'already exists' not in bucket_create.stderr
+      ignore_errors: true
+
     # ------------------------------------------------------------ PostgreSQL
     - name: Pull PostgreSQL image
       containers.podman.podman_image:
@@ -241,23 +262,6 @@
         state: started
         timeout: 90
         delay: 2
-
-    # ----------------------------------- Ensure the S3 bucket exists in RustFS
-    - name: Ensure the OpenObserve S3 bucket "{{ openobserve_bucket }}" exists
-      ansible.builtin.command: >-
-        podman run --rm --network {{ network_name }}
-        -e AWS_ACCESS_KEY_ID={{ rustfs_access_key }}
-        -e AWS_SECRET_ACCESS_KEY={{ rustfs_secret_key }}
-        -e AWS_DEFAULT_REGION=us-east-1
-        docker.io/amazon/aws-cli:latest
-        s3api create-bucket --bucket {{ openobserve_bucket }}
-        --endpoint-url http://{{ rustfs_container }}:9000
-      register: bucket_create
-      changed_when: bucket_create.rc == 0
-      failed_when: >-
-        bucket_create.rc != 0 and 'AlreadyOwnedByYou' not in bucket_create.stderr
-        and 'already exists' not in bucket_create.stderr
-      ignore_errors: true
 
   post_tasks:
     - name: Deploy demo telemetry generator into {{ openobserve_org }}
