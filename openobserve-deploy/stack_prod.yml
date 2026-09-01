@@ -252,6 +252,9 @@
           ZO_S3_SECRET_KEY: "{{ rustfs_secret_key }}"
           ZO_S3_PROVIDER: "s3"
           ZO_S3_FEATURE_FORCE_HOSTED_STYLE: "false"
+          # Push WAL/parquet files to object storage after this retention (seconds)
+          # once they are older than this limit, even if below the size threshold.
+          ZO_MAX_FILE_RETENTION_TIME: "300"
           # Reasonable logging (verbose storage/ingester trace for diagnostics)
           RUST_LOG: "info,openobserve_jobs::job::files::parquet=trace,common::infra=debug,ingester=debug,infra::storage=debug"
 
